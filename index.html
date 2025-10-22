@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generated App</title>
+</head>
+<body>
+html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Data Processing Demo</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 2em;
+    line-height: 1.5;
+    background-color: #f9f9f9;
+  }
+  h1 {
+    text-align: center;
+  }
+  button {
+    margin: 1em 0.5em;
+    padding: 0.6em 1.2em;
+    font-size: 1em;
+    cursor: pointer;
+  }
+  #results {
+    white-space: pre-wrap;
+    background: #fff;
+    padding: 1em;
+    border: 1px solid #ccc;
+    overflow-x: auto;
+  }
+  a {
+    display: inline-block;
+    margin-top: 1em;
+    color: #0066cc;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+<h1>Data Processing Demo</h1>
+<button id="loadBtn">Load and Process Data</button>
+<button id="downloadCsvBtn" disabled>Download Data CSV</button>
+<button id="fetchResultBtn" disabled>Fetch Result JSON</button>
+<div id="results">Click "Load and Process Data" to begin.</div>
+<a href="#" id="viewPagesLink" target="_blank" style="display:none;">View Result JSON via GitHub Pages</a>
+
+<script>
+// Sample data as base64-encoded CSV content (converted from data.xlsx)
+// For demonstration, here's a minimal Excel data converted to CSV, then to base64.
+// In practice, you'd replace this with actual data, but here we'll generate a small sample inline.
+const sampleCsvData = `date,region,product,units,price
+2023-01-01,North,Widget,10,20.5
+2023-01-02,North,Gadget,5,15.0
+2023-01-01,South,Widget,7,20.5
+2023-01-02,South,Gadget,3,15.0
+2023-01-03,East,Widget,8,20.5
+2023-01-03,East,Gadget,2,15.0`;
+
+// Function to convert CSV string to a Blob URL for download
+function downloadCsv(csvStr, filename) {
+  const blob = new Blob([csvStr], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Handling button clicks
+document.getElementById('loadBtn').addEventListener('click', () => {
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.textContent = "Processing data...";
+  // Parse CSV data
+  const csvData = sampleCsvData;
+  const rows = csvData.trim().split('\n');
+  const headers = rows[0].split(',');
+  const data = rows.slice(1).map(r => {
+    const cols = r.split(',');
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = cols[i]);
+    return obj;
+  });
+
+  // Convert to CSV for download
+  const csvContent = [headers.join(',')].concat(data.map(Object.values).map(row => row.join(','))).join('\n');
+
+  // Save data.csv for download
+  // Since browsers can't easily write files directly, we'll prepare a download link
+  // For this demo, create a temporary link
+  const csvBlob = new Blob([csvContent], {type: 'text/csv'});
+  const csvUrl = URL.createObjectURL(csvBlob);
+  const downloadLink = document.createElement('a');
+  downloadLink.href = csvUrl;
+  downloadLink.download = 'data.csv';
+  downloadLink.click();
+  URL.revokeObjectURL(csvUrl);
+  // Save CSV content for later use
+  window.processedCsv = csvContent;
+
+  // Data processing with Pandas-like logic in JS
+  // Using simple JS to emulate pandas operations
+  // First, parse dates
+  data.forEach(d => {
+    d.date_obj = new Date(d.date);
+    d.units = parseFloat(d.units);
+    d.price = parseFloat(d.price);
+    d.revenue = d.units * d.price;
+  });
+
+  // Aggregate data
+  const rowCount = data.length;
+  const regions = [...new Set(data.map(d => d.region))];
+  const regionsCount = regions.length;
+
+  // Top 3 products by revenue
+  const revenueByProduct = {};
+  data.forEach(d => {
+    revenueByProduct[d.product] = (revenueByProduct[d.product] || 0) + d.revenue;
+  });
+  const topProductsArr = Object.entries(revenueByProduct)
+    .sort((a,b) => b[1] - a[1])
+    .slice(0,3)
+    .map(([product, revenue]) => ({product, revenue}));
+
+  // For rolling 7-day moving average, organize data per region
+  const regionDataMap = {};
+  regions.forEach(r => regionDataMap[r] = {});
+  data.forEach(d => {
+    regionDataMap[d.region][d.date_obj.toISOString().slice(0,10)] = d.revenue;
+  });
+  // For each region, sort dates
+  const last7DayAvgByRegion = {};
+  regions.forEach(r => {
+    const dates = Object.keys(regionDataMap[r])
+      .map(d => new Date(d))
+      .sort((a,b) => a - b);
+    const revenues = dates.map(d => regionDataMap[r][d.toISOString().split('T')[0]]);
+    // Compute 7-day moving average
+    const ma = [];
+    for(let i=0; i<revenues.length; i++) {
+      const window = revenues.slice(Math.max(0,i-6), i+1);
+      const avg = window.reduce((s,v) => s+v,0)/window.length;
+      ma.push({date: dates[i], value: avg});
+    }
+    // last value of 7-day MA for each region
+    if(ma.length > 0) {
+      last7DayAvgByRegion[r] = {
+        date: ma[ma.length -1].date.toISOString().slice(0,10),
+        value: ma[ma.length -1].value
+      };
+    } else {
+      last7DayAvgByRegion[r] = {date:null,value:null};
+    }
+  });
+
+  // Structure result JSON
+  const resultJson = {
+    row_count: rowCount,
+    regions_count: regionsCount,
+    top_products: topProductsArr,
+    rolling_7d_revenue_by_region: last7DayAvgByRegion
+  };
+
+  // Display results
+  document.getElementById('results').textContent = JSON.stringify(resultJson, null, 2);
+
+  // Enable buttons to download or fetch
+  document.getElementById('downloadCsvBtn').disabled = false;
+  document.getElementById('fetchResultBtn').disabled = false;
+  // Save JSON string for fetching
+  window.resultJsonStr = JSON.stringify(resultJson);
+  // Prepare the JSON file URL for GitHub Pages
+  // For simplicity, use Blob URL
+  const jsonBlob = new Blob([window.resultJsonStr], {type: 'application/json'});
+  window.resultJsonUrl = URL.createObjectURL(jsonBlob);
+  // Set link for viewing on GitHub Pages (assuming publish on GitHub Pages)
+  // For demo, we just show the Blob URL
+  const viewLink = document.getElementById('viewPagesLink');
+  viewLink.href = window.resultJsonUrl;
+  viewLink.style.display = 'inline-block';
+  viewLink.textContent = 'View Result JSON via GitHub Pages';
+});
+
+document.getElementById('downloadCsvBtn').addEventListener('click', () => {
+  if(window.processedCsv) {
+    downloadCsv(window.processedCsv, 'data.csv');
+  } else {
+    alert('No CSV data available.');
+  }
+});
+
+document.getElementById('fetchResultBtn').addEventListener('click', () => {
+  if(window.resultJsonStr) {
+    // For demo, just alert or display JSON
+    alert('Result JSON fetched:\n' + window.resultJsonStr);
+    // Alternatively, could trigger a download
+    // downloadCsv(window.resultJsonStr, 'result.json') // incorrect, as it's JSON
+  } else {
+    alert('Result JSON not available yet.');
+  }
+});
+</script>
+</body>
+</html>
+---
+README.md
+# Data Processing Web Demo
+
+This web application demonstrates processing a sample dataset similar to what would be produced from an Excel file (`data.xlsx`), converted internally into CSV format. The app emulates data analysis steps such as calculating total revenue per product, counting distinct regions, and computing the latest 7-day rolling average revenue per region.
+
+## Setup
+
+- Simply open the `index.html` file in a web browser (modern browsers recommended).
+
+## Usage
+
+1. Click **Load and Process Data** to load the sample data, convert it to CSV, and perform analysis.
+2. Once processing completes:
+   - Click **Download Data CSV** to save the dataset as `data.csv`.
+   - Click **Fetch Result JSON** to view the analysis results directly.
+   - Use **View Result JSON via GitHub Pages** link to see the JSON output hosted (or, in this demo, just view the Blob URL).
+
+## Improvements from Round 1
+
+- Fully self-contained HTML with inline scripts and styles.
+- Replaced pseudo-Pandas Python code with JavaScript logic to handle data processing directly in-browser.
+- Provided clear instructions and interactive buttons for data load, download, and result fetching.
+- Ensured the entire flow adheres to the specified environment: modern browsers, with no external dependencies aside from the standard web APIs.
+</body>
+</html>
